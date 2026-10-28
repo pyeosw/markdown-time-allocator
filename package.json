@@ -81,6 +81,7 @@
     "check:format": "prettier --check src webview scripts .vscode .github *.json vitest.config.mts",
     "test": "vitest run",
     "test:integration": "npm run build && node scripts/test-integration.mjs",
+    "test:ci": "npm run check && npm run check:format && npm test && npm run test:integration && npm run package",
     "package": "npm run check && vsce package --no-dependencies --allow-missing-repository --skip-license --out artifacts/time-calculator-vsc-0.1.0.vsix",
     "vscode:prepublish": "npm run build"
   },

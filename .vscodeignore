@@ -14,6 +14,7 @@ tsconfig*.json
 vitest.config.mts
 package-lock.json
 .gitignore
+.gitattributes
 .nvmrc
 .github/**
 .prettierignore

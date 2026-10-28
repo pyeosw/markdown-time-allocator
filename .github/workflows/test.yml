@@ -14,11 +14,7 @@ jobs:
           node --version
           npm --version
       - run: npm ci
-      - run: npm run check
-      - run: npm run check:format
-      - run: npm test
-      - run: npm run test:integration
-      - run: npm run package
+      - run: npm run test:ci
       - uses: actions/upload-artifact@v7
         with:
           name: time-calculator-vsix

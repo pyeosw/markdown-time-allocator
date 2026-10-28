@@ -64,12 +64,14 @@ CIと依存関係の解決方法をそろえるため、開発時は`.nvmrc`に�
 
 ```sh
 npm ci
-npm run check
-npm test
-npm run build
-npm run test:integration
-npm run package
+npm run test:ci
 ```
+
+`npm run test:ci`はGitHub Actionsと共通の事前確認コマンドです。型チェック、書式チェック、単体・画面テスト、VSCode統合テスト、VSIX生成を順に実行し、途中で失敗した場合は停止します。プッシュ前に上記2コマンドを実行してください。GitHub固有の権限・通信や成果物アップロードまでの成功を保証するものではありません。
+
+書式チェックで失敗した場合は`npm run format`で整形してから、`npm run test:ci`を再実行してください。`.gitattributes`とPrettierの`endOfLine`設定でテキストの改行をLFに統一し、WindowsのチェックアウトでもCRLFへ変換されないようにしています。既存の作業フォルダーにCRLFのファイルが残っている場合も、`npm run format`でチェック対象のファイルを整えられます。
+
+各工程を個別に実行する場合は、`npm run check`、`npm run check:format`、`npm test`、`npm run test:integration`、`npm run package`を使用します。ビルドだけなら`npm run build`を実行してください。
 
 `npm run test:integration`は公式のテスト用VSCodeを取得し、プロジェクト内の専用プロファイルでMochaを実行します。インストール済みVSCodeで実行する場合は環境変数`VSCODE_EXECUTABLE_PATH`に実行ファイルの絶対パスを設定します。単体テストと配分画面のDOMテストにはVitestを使用します。
 
