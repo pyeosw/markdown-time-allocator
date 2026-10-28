@@ -60,6 +60,8 @@ Markdownの日別記録から実働時間を計算し、作業項目へ0.25h単�
 
 VSCode 1.95以降に対応します。開発にはNode.js 22.12以降とnpmを使用します。
 
+CIと依存関係の解決方法をそろえるため、開発時は`.nvmrc`に記載したNode.js 22.23.4と、その付属のnpm 10.9.9を使用してください。npmのバージョンは`package.json`の`packageManager`にも記載しています。依存関係を変更した場合は、この環境で`npm install`を実行して`package-lock.json`を更新し、`npm ci`が成功することを確認して両ファイルをコミットしてください。
+
 ```sh
 npm ci
 npm run check

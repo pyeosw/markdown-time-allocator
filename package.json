@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "publisher": "time-calculator-local",
   "private": true,
+  "packageManager": "npm@10.9.9",
   "engines": {
     "vscode": "^1.95.0",
     "node": ">=22.12.0"
