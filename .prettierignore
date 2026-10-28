@@ -1,0 +1,10 @@
+node_modules/
+.tools/
+.vscode-test/
+dist/
+out/
+artifacts/
+coverage/
+package-lock.json
+docs/
+AGENTS.md

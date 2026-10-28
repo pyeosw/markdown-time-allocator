@@ -1,0 +1,103 @@
+{
+  "name": "time-calculator-vsc",
+  "displayName": "作業時間の配分",
+  "description": "Markdownの日別記録に作業時間を配分します。",
+  "version": "0.1.0",
+  "publisher": "time-calculator-local",
+  "private": true,
+  "engines": {
+    "vscode": "^1.95.0",
+    "node": ">=22.12.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onCommand:timeCalculator.allocate"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "timeCalculator.allocate",
+        "title": "作業時間を配分",
+        "enablement": "editorLangId == markdown"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "timeCalculator.allocate",
+          "when": "editorLangId == markdown",
+          "group": "navigation@10"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "作業時間の配分",
+      "properties": {
+        "timeCalculator.startTime": {
+          "type": "string",
+          "default": "09:00",
+          "pattern": "^\\s*(?:[01]?\\d|2[0-3]):[0-5]\\d\\s*$",
+          "scope": "resource",
+          "description": "通常勤務の始業時刻。例: 09:00"
+        },
+        "timeCalculator.breakTimes": {
+          "type": "array",
+          "default": [
+            "12:00-13:00"
+          ],
+          "items": {
+            "type": "string",
+            "pattern": "^\\s*(?:[01]?\\d|2[0-3]):[0-5]\\d\\s*-\\s*(?:[01]?\\d|2[0-3]):[0-5]\\d\\s*$"
+          },
+          "scope": "resource",
+          "description": "休憩時間帯。例: [\"12:00-13:00\", \"20:00-20:30\"]"
+        },
+        "timeCalculator.amLeaveStartTime": {
+          "type": "string",
+          "default": "13:00",
+          "pattern": "^\\s*(?:[01]?\\d|2[0-3]):[0-5]\\d\\s*$",
+          "scope": "resource",
+          "description": "AM休暇時の始業時刻。"
+        },
+        "timeCalculator.maxHeadingDepth": {
+          "type": "integer",
+          "default": 6,
+          "minimum": 2,
+          "maximum": 6,
+          "scope": "resource",
+          "description": "配分対象とする見出しの最大深さ。2なら案件単位で配分します。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "tsc --noEmit && tsc -p tsconfig.webview.json && tsc -p tsconfig.test.json",
+    "format": "prettier --write src webview scripts .vscode .github *.json vitest.config.mts",
+    "check:format": "prettier --check src webview scripts .vscode .github *.json vitest.config.mts",
+    "test": "vitest run",
+    "test:integration": "npm run build && node scripts/test-integration.mjs",
+    "package": "npm run check && vsce package --no-dependencies --allow-missing-repository --skip-license --out artifacts/time-calculator-vsc-0.1.0.vsix",
+    "vscode:prepublish": "npm run build"
+  },
+  "dependencies": {
+    "commonmark": "0.31.2"
+  },
+  "devDependencies": {
+    "@types/commonmark": "^0.27.10",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.15.0",
+    "@types/vscode": "1.95.0",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.6.0",
+    "esbuild": "^0.25.0",
+    "jsdom": "^26.1.0",
+    "mocha": "^11.7.0",
+    "prettier": "^3.9.10",
+    "typescript": "~5.9.3",
+    "vitest": "^4.0.0"
+  }
+}
