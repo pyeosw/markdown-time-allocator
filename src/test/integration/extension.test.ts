@@ -133,6 +133,77 @@ export function registerTests(): void {
       assert.equal(panel.state.status, 'stale');
     });
 
+    // Applying a textbox value must validate and edit atomically using the displayed revision.
+    test('直接入力を即時適用し、本文末尾の時間行とその他をUndoできる', async () => {
+      const source = '# 日\n## A\n- メモ\n## 時間\n- 18:00\n';
+      const panel = await open(source);
+      await panel.receive({
+        type: 'apply',
+        generation: panel.state.generation,
+        revision: panel.state.revision,
+        allocations: [{id: panel.state.items[0].id, value: '1.25'}],
+      });
+      const output = panel.document.getText();
+      assert.ok(output.includes('- メモ\n\n- 作業時間: 1.25h'));
+      assert.equal(parseDay(output, 0).other?.duration?.minutes, 405);
+      const version = panel.document.version;
+      await apply(panel);
+      assert.equal(panel.document.version, version);
+      await vscode.window.showTextDocument(
+        panel.document,
+        vscode.ViewColumn.One
+      );
+      await vscode.commands.executeCommand('undo');
+      await waitFor(() => panel.document.getText() === source);
+    });
+
+    // Invalid text, unknown IDs and obsolete revisions must never reach WorkspaceEdit.
+    test('不正な直接入力を保持して適用を防ぎ、修正後に反映する', async () => {
+      const source = '# 日\n## A\n## 時間\n- 18:00\n';
+      const panel = await open(source);
+      const old = panel.state;
+      await panel.receive({
+        type: 'apply',
+        generation: old.generation,
+        revision: old.revision,
+        allocations: [{id: old.items[0].id, value: '0.1'}],
+      });
+      assert.equal(panel.document.getText(), source);
+      assert.equal(panel.state.items[0].input, '0.1');
+      assert.equal(panel.state.canApply, false);
+      await panel.receive({
+        type: 'apply',
+        generation: old.generation,
+        revision: old.revision,
+        allocations: [{id: old.items[0].id, value: '2'}],
+      });
+      assert.equal(panel.state.items[0].input, '0.1');
+      await panel.receive({
+        type: 'apply',
+        generation: panel.state.generation,
+        revision: panel.state.revision,
+        allocations: [{id: 'unknown', value: '2'}],
+      });
+      assert.equal(panel.document.getText(), source);
+      await panel.receive({
+        type: 'apply',
+        generation: panel.state.generation,
+        revision: panel.state.revision,
+        allocations: [{id: panel.state.items[0].id, value: '2.5'}],
+      });
+      assert.equal(parseDay(panel.document.getText(), 0).items[0].minutes, 150);
+    });
+
+    // Appending into an unterminated block must fail without changing the document.
+    test('本文末尾の未終了コードブロックでは文書を変更しない', async () => {
+      const source = '# 日\n## 時間\n- 18:00\n## A\n\n```\nメモ';
+      const panel = await open(source);
+      await apply(panel);
+      assert.equal(panel.document.getText(), source);
+      assert.equal(panel.state.canApply, false);
+      assert.ok(panel.state.errors.join().includes('構造'));
+    });
+
     // Recovery path: overflow remains editable and obsolete requests do nothing.
     test('超過・古いメッセージ・不正メッセージから文書を保護する', async () => {
       const panel = await open();

@@ -2,8 +2,8 @@
   "name": "time-calculator-vsc",
   "displayName": "作業時間の配分",
   "description": "Markdownの日別記録に作業時間を配分します。",
-  "version": "0.1.0",
-  "publisher": "time-calculator-local",
+  "version": "0.2.0",
+  "publisher": "pyeosw",
   "private": true,
   "packageManager": "npm@10.9.9",
   "engines": {

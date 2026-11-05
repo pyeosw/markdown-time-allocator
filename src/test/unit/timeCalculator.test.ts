@@ -9,10 +9,36 @@ import {
   calculateTime,
   formatClock,
   formatHours,
+  parseAllocationHours,
 } from '../../domain/timeCalculator';
 
 /** Validates clock boundaries, strict settings and the net-work rounding contract. */
 describe('勤務時間と設定', () => {
+  // Decimal input must preserve quarter-hour precision without rounding or coercion.
+  it.each([
+    ['0', 0],
+    ['1.25', 75],
+    ['2.50', 150],
+    [' 3.7500 ', 225],
+  ])('作業時間の入力 %s', (value, minutes) => {
+    expect(parseAllocationHours(value as string)).toBe(minutes);
+  });
+  it.each([
+    '',
+    ' ',
+    '-1',
+    '0.1',
+    '1.',
+    '1e2',
+    'Infinity',
+    'NaN',
+    '2h',
+    '0.2499999999999999999',
+    '999999999999999999999',
+  ])('不正な作業時間 %s', value => {
+    expect(() => parseAllocationHours(value)).toThrow('0.25h');
+  });
+
   // Clock examples include accepted short hours and invalid 24-hour boundaries.
   it.each([
     ['9:00', 540],

@@ -76,7 +76,13 @@ export interface SessionView {
   status: SessionStatus;
   title: string;
   mode: WorkMode;
-  items: Array<{id: string; name: string; parentPath: string; minutes: number}>;
+  items: Array<{
+    id: string;
+    name: string;
+    parentPath: string;
+    minutes: number;
+    input: string;
+  }>;
   calculation?: CalculationResult;
   errors: string[];
   canAdjust: boolean;
@@ -91,9 +97,20 @@ export interface EditPlan {
   text: string;
 }
 
+/** Raw hour inputs are validated by the extension before any document edit. */
+export interface AllocationInput {
+  id: string;
+  value: string;
+}
+
 export type ClientMessage =
-  | {type: 'ready' | 'reload' | 'close'}
-  | {type: 'apply'; generation: number; revision: number}
+  | {type: 'ready' | 'close'}
+  | {type: 'reload'; hasDrafts?: boolean}
+  | (AllocationAction & {allocations?: AllocationInput[]});
+
+/** Revision-bearing operations can atomically commit pending text inputs. */
+export type AllocationAction =
+  | {type: 'apply' | 'setAllocations'; generation: number; revision: number}
   | {
       type: 'adjust';
       generation: number;

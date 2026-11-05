@@ -8,6 +8,7 @@ scripts/**
 out/**
 artifacts/**
 coverage/**
+*.log
 docs/**
 AGENTS.md
 tsconfig*.json

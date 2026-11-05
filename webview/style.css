@@ -101,10 +101,26 @@ small {
   gap: 8px;
   flex-shrink: 0;
 }
-.counter output {
-  min-width: 70px;
+.counter input {
+  width: 70px;
+  padding: 5px;
+  font: inherit;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 4px;
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+.counter input[aria-invalid='true'] {
+  border-color: var(--vscode-inputValidation-errorBorder);
+}
+.input-error {
+  max-width: 230px;
+  color: var(--vscode-errorForeground);
+}
+.input-error[hidden] {
+  display: none;
 }
 button {
   border: 1px solid transparent;
@@ -128,6 +144,7 @@ button:disabled {
   cursor: default;
 }
 button:focus-visible,
+input:focus-visible,
 select:focus-visible {
   outline: 2px solid var(--vscode-focusBorder);
   outline-offset: 2px;

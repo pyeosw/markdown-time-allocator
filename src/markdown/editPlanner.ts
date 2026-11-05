@@ -29,7 +29,7 @@ export function applyChanges(
   return output;
 }
 
-/** Builds a replacement or an insertion immediately after the complete heading. */
+/** Updates a managed row or appends one after the direct body's last content line. */
 function durationEdit(
   text: string,
   heading: Heading,
@@ -46,11 +46,12 @@ function durationEdit(
       text: row,
     };
   }
-  return {
-    start: heading.headingEnd,
-    end: heading.headingEnd,
-    text: `${eol}${eol}${row}${eol}`,
-  };
+  // Insert before trailing line breaks, keeping edits away from section boundaries.
+  const body = text.slice(heading.headingEnd, heading.bodyEnd);
+  const at = heading.headingEnd + body.replace(/(?:\r?\n[\t ]*)+$/, '').length;
+  const suffix = text.slice(at);
+  const after = suffix.startsWith(eol + eol) ? '' : eol;
+  return {start: at, end: at, text: `${eol}${eol}${row}${after}`};
 }
 
 /** Ensures moved or new sections remain separate Markdown blocks. */
@@ -139,7 +140,9 @@ export function planEdits(
   if (
     reparsed.errors.length ||
     reparsed.items.length !== allocations.length ||
-    reparsed.items.some((item, index) => item.minutes !== allocations[index]) ||
+    reparsed.items.some(
+      (item, index) => item.heading.duration?.minutes !== allocations[index]
+    ) ||
     ((other || remaining > 0) &&
       (!reparsed.other ||
         reparsed.other.duration?.minutes !== remaining ||

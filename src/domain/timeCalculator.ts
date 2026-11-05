@@ -1,5 +1,24 @@
 import {CalculationResult, WorkMode, WorkSettings} from './models';
 
+/** Parses decimal hours exactly, rejecting values outside quarter-hour units. */
+export function parseAllocationHours(value: string): number {
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(value.trim());
+  const fraction = (match?.[2] ?? '').replace(/0+$/, '');
+  const quarters = new Map([
+    ['', 0],
+    ['25', 1],
+    ['5', 2],
+    ['75', 3],
+  ]).get(fraction);
+  const minutes =
+    match && quarters !== undefined
+      ? (Number(match[1]) * 4 + quarters) * 15
+      : NaN;
+  if (!Number.isSafeInteger(minutes))
+    throw new Error('作業時間は0以上の0.25h単位の数値で入力してください。');
+  return minutes;
+}
+
 /** Unions clipped breaks and rounds the net work total only once. */
 export function calculateTime(
   settings: WorkSettings,

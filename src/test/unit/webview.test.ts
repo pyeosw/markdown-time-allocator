@@ -78,11 +78,107 @@ describe('配分画面', () => {
     expect(button('#apply').disabled).toBe(true);
     session.adjust(session.day.items[0].id, 1);
     show(session.view);
-    expect(document.querySelector('output')?.textContent).toBe('0.25h');
+    expect(
+      document.querySelector<HTMLInputElement>('.counter input')?.value
+    ).toBe('0.25');
     expect(button('.counter button:last-child').disabled).toBe(false);
     expect(document.activeElement?.getAttribute('aria-label')).toContain(
       '増やす'
     );
+  });
+  /** Types through the actual input event so pending text follows the shipped UI path. */
+  function typeHours(value: string): HTMLInputElement {
+    const input = document.querySelector<HTMLInputElement>('.counter input');
+    if (!input) throw new Error('Missing hours input');
+    input.focus();
+    input.value = value;
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+    return input;
+  }
+
+  // The first Apply click must carry the latest text even before a blur acknowledgement.
+  it('入力直後の適用は最新値を同じメッセージで送る', () => {
+    const session = new AllocationSession(EXAMPLE, 0, DEFAULT_SETTINGS);
+    show(session.view);
+    const input = typeHours('1.25');
+    input.dispatchEvent(
+      new FocusEvent('blur', {relatedTarget: button('#apply')})
+    );
+    button('#apply').click();
+    expect(postMessage).toHaveBeenLastCalledWith({
+      type: 'apply',
+      generation: session.generation,
+      revision: session.revision,
+      allocations: [{id: session.day.items[0].id, value: '1.25'}],
+    });
+    expect(input.disabled).toBe(true);
+  });
+  // An acknowledged counter adjustment must replace the submitted draft with its new value.
+  it('直接入力と加算を併用しても古い入力値に戻らない', () => {
+    const session = new AllocationSession(EXAMPLE, 0, DEFAULT_SETTINGS);
+    show(session.view);
+    typeHours('1.25');
+    button('.counter button:last-child').click();
+    session.setAllocations([{id: session.day.items[0].id, value: '1.25'}]);
+    session.adjust(session.day.items[0].id, 1);
+    show(session.view);
+    expect(document.querySelector<HTMLInputElement>('input')?.value).toBe(
+      '1.5'
+    );
+    button('#apply').click();
+    expect(postMessage).toHaveBeenLastCalledWith({
+      type: 'apply',
+      generation: session.generation,
+      revision: session.revision,
+    });
+  });
+  // Tabbing between input fields must restore the destination after the host responds.
+  it('別の入力欄へ移動しても確定後に移動先のフォーカスを保つ', () => {
+    const session = new AllocationSession(EXAMPLE, 0, DEFAULT_SETTINGS);
+    show(session.view);
+    const input = typeHours('2');
+    const destination = document.querySelectorAll<HTMLInputElement>('input')[1];
+    input.dispatchEvent(new FocusEvent('blur', {relatedTarget: destination}));
+    session.setAllocations([{id: session.day.items[0].id, value: '2'}]);
+    show(session.view);
+    expect(document.activeElement).toBe(document.querySelectorAll('input')[1]);
+  });
+  // Incomplete decimals survive unrelated state updates and remain editable after validation.
+  it('入力途中を保持し、不正入力は適用を禁止してEnterで確定する', () => {
+    const session = new AllocationSession(EXAMPLE, 0, DEFAULT_SETTINGS);
+    show(session.view);
+    typeHours('1.');
+    expect(button('#apply').disabled).toBe(true);
+    show(session.view);
+    expect(document.querySelector<HTMLInputElement>('input')?.value).toBe('1.');
+    const input = typeHours('1.5');
+    expect(button('#apply').disabled).toBe(false);
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})
+    );
+    expect(postMessage).toHaveBeenLastCalledWith({
+      type: 'setAllocations',
+      generation: session.generation,
+      revision: session.revision,
+      allocations: [{id: session.day.items[0].id, value: '1.5'}],
+    });
+    session.setAllocations([{id: session.day.items[0].id, value: '1.5'}]);
+    show(session.view);
+    expect(document.activeElement).toBe(document.querySelector('input'));
+    expect(document.querySelector('#summary')?.textContent).toContain('1.5h');
+  });
+  // Reload must disclose uncommitted or invalid text to the host's discard confirmation.
+  it('未確定の入力がある再読込は破棄確認を要求する', () => {
+    show(new AllocationSession(EXAMPLE, 0, DEFAULT_SETTINGS).view);
+    const input = typeHours('');
+    input.dispatchEvent(
+      new FocusEvent('blur', {relatedTarget: button('#reload')})
+    );
+    button('#reload').click();
+    expect(postMessage).toHaveBeenLastCalledWith({
+      type: 'reload',
+      hasDrafts: true,
+    });
   });
   it('超過は負数とエラーテキストを示し、減算で修正できる', () => {
     const session = new AllocationSession(EXAMPLE, 0, DEFAULT_SETTINGS);

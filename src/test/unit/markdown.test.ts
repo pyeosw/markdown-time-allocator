@@ -124,6 +124,46 @@ describe('Markdown解析', () => {
 
 /** Verifies edits by reparsing output, preserving user text and repeating applications. */
 describe('Markdown更新', () => {
+  // Appending before trailing blank lines avoids colliding with new or moved Other sections.
+  it.each(['', '\n', '\n\n', '\n \n'])(
+    '本文の後ろへ追加し、その他の新設と衝突しない: %j',
+    blank => {
+      const source = `# 日\n## A\n- メモ${blank}\n## 時間\n- 18:00\n`;
+      const plan = planEdits(source, parseDay(source, 0), [120], 360, 6);
+      expect(plan.text).toContain(
+        `- メモ\n\n- 作業時間: 2h ${DURATION_MARKER}`
+      );
+      const day = parseDay(plan.text, 0);
+      expect(day.other?.duration?.minutes).toBe(360);
+      expect(day.other?.end).toBe(day.time?.start);
+      expect(planEdits(plan.text, day, [120], 360, 6).edits).toEqual([]);
+    }
+  );
+  // A parent's row must stay in its direct body rather than becoming a child's allocation.
+  it('直接本文の末尾かつ子見出しの前へ挿入する', () => {
+    const source = '# 日\n## A\n本文\n### 子\n- 内訳\n## 時間\n- 18:00\n';
+    const output = planEdits(source, parseDay(source, 0, 2), [480], 0, 2).text;
+    expect(output).toContain(
+      `本文\n\n- 作業時間: 8h ${DURATION_MARKER}\n\n### 子\n- 内訳`
+    );
+    expect(parseDay(output, 0, 2).items[0].minutes).toBe(480);
+  });
+  // Existing managed rows remain in place and user-authored content is untouched.
+  it('既存の管理行は移動せず更新する', () => {
+    const source = `# 日\n## A\n${row('1')}\n- メモ\n## 時間\n- 18:00\n`;
+    const output = planEdits(source, parseDay(source, 0), [480], 0, 6).text;
+    expect(output).toBe(source.replace('作業時間: 1h', '作業時間: 8h'));
+  });
+  // Standalone rows must remain outside closed code, HTML, quotes and nested lists.
+  it.each(['```\nメモ\n```', '<div>\nメモ\n</div>', '> メモ', '- 親\n  - 子'])(
+    '末尾のブロックと時間行を分離する: %s',
+    body => {
+      const source = `# 日\n## 時間\n- 18:00\n\n## A\n${body}`;
+      const output = planEdits(source, parseDay(source, 0), [480], 0, 6).text;
+      expect(output).toContain(`${body}\n\n- 作業時間: 8h`);
+      expect(parseDay(output, 0).items[0].minutes).toBe(480);
+    }
+  );
   it('要求例を更新し、その他を時間の直前へ配置する', () => {
     const day = parseDay(EXAMPLE, 0);
     const plan = planEdits(EXAMPLE, day, [120, 180, 90], 90, 6);
@@ -193,12 +233,16 @@ describe('Markdown更新', () => {
     expect(output).toContain('- メモ');
     expect(parseDay(output, 0).items[0].minutes).toBe(480);
   });
-  it('管理行は見出し直後へ置き、後方の未終了フェンスに取り込まれない', () => {
-    const source = '# 日\n## 時間\n- 18:00\n\n## A\n\n```\nメモ';
-    const output = planEdits(source, parseDay(source, 0), [480], 0, 6).text;
-    expect(parseDay(output, 0).items[0].minutes).toBe(480);
-    expect(output.endsWith('```\nメモ')).toBe(true);
-  });
+  // An unclosed fence would hide an appended row, so no unsafe edit may be planned.
+  it.each([0, 480])(
+    '本文末尾の未終了フェンスに管理行（%i分）が取り込まれる場合は拒否する',
+    minutes => {
+      const source = '# 日\n## 時間\n- 18:00\n\n## A\n\n```\nメモ';
+      expect(() =>
+        planEdits(source, parseDay(source, 0), [minutes], 480 - minutes, 6)
+      ).toThrow('構造');
+    }
+  );
   it('移動した未終了フェンスが時間を隠す場合は編集を拒否する', () => {
     const source = '# 日\n## A\n## 時間\n- 18:00\n\n## その他\n\n```\nメモ';
     expect(() => planEdits(source, parseDay(source, 0), [0], 480, 6)).toThrow(

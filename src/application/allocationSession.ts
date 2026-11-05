@@ -1,6 +1,7 @@
 import {errorMessage, parseSettings} from '../config/settings';
 import {
   ClientMessage,
+  AllocationInput,
   DayBlock,
   EditPlan,
   RawSettings,
@@ -9,7 +10,7 @@ import {
   WorkMode,
   WorkSettings,
 } from '../domain/models';
-import {calculateTime} from '../domain/timeCalculator';
+import {calculateTime, parseAllocationHours} from '../domain/timeCalculator';
 import {planEdits} from '../markdown/editPlanner';
 import {parseDay} from '../markdown/parser';
 
@@ -19,8 +20,11 @@ let nextGeneration = 0;
 export function parseClientMessage(value: unknown): ClientMessage | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const data = value as Record<string, unknown>;
-  if (data.type === 'ready' || data.type === 'reload' || data.type === 'close')
-    return {type: data.type};
+  if (data.type === 'ready' || data.type === 'close') return {type: data.type};
+  if (data.type === 'reload')
+    return data.hasDrafts === true
+      ? {type: 'reload', hasDrafts: true}
+      : {type: 'reload'};
   if (
     !Number.isSafeInteger(data.generation) ||
     !Number.isSafeInteger(data.revision)
@@ -28,7 +32,26 @@ export function parseClientMessage(value: unknown): ClientMessage | undefined {
     return undefined;
   const generation = data.generation as number;
   const revision = data.revision as number;
-  if (data.type === 'apply') return {type: 'apply', generation, revision};
+  let inputs: {allocations?: AllocationInput[]} = {};
+  if (data.allocations !== undefined) {
+    if (!Array.isArray(data.allocations)) return undefined;
+    const allocations: AllocationInput[] = [];
+    for (const input of data.allocations) {
+      if (
+        !input ||
+        typeof input !== 'object' ||
+        typeof input.id !== 'string' ||
+        typeof input.value !== 'string'
+      )
+        return undefined;
+      allocations.push({id: input.id, value: input.value});
+    }
+    if (new Set(allocations.map(input => input.id)).size !== allocations.length)
+      return undefined;
+    inputs = {allocations};
+  }
+  if (data.type === 'apply' || data.type === 'setAllocations')
+    return {type: data.type, generation, revision, ...inputs};
   if (
     data.type === 'adjust' &&
     typeof data.id === 'string' &&
@@ -40,13 +63,20 @@ export function parseClientMessage(value: unknown): ClientMessage | undefined {
       revision,
       id: data.id,
       direction: data.direction,
+      ...inputs,
     };
   }
   if (
     data.type === 'changeWorkMode' &&
     (data.mode === 'normal' || data.mode === 'amLeave')
   ) {
-    return {type: 'changeWorkMode', generation, revision, mode: data.mode};
+    return {
+      type: 'changeWorkMode',
+      generation,
+      revision,
+      mode: data.mode,
+      ...inputs,
+    };
   }
   return undefined;
 }
@@ -64,6 +94,7 @@ export class AllocationSession {
   private configurationErrors: string[] = [];
   private transientErrors: string[] = [];
   private baseline = '';
+  private allocationInputs = new Map<string, string>();
 
   /** Loads a source snapshot and creates a new message generation. */
   constructor(text: string, offset: number, raw: RawSettings, version = 0) {
@@ -99,6 +130,9 @@ export class AllocationSession {
     this.settings = settings;
     this.configurationErrors = configurationErrors;
     this.day = day;
+    this.allocationInputs = new Map(
+      day.items.map(item => [item.id, String(item.minutes / 60)])
+    );
     this.mode = mode;
     this.statusOverride = undefined;
     this.transientErrors = [];
@@ -115,6 +149,7 @@ export class AllocationSession {
     return JSON.stringify([
       this.mode,
       this.day.items.map(item => item.minutes),
+      [...this.allocationInputs.values()],
     ]);
   }
 
@@ -133,6 +168,13 @@ export class AllocationSession {
       ...this.day.errors,
       ...this.transientErrors,
     ];
+    for (const item of this.day.items) {
+      try {
+        parseAllocationHours(this.allocationInputs.get(item.id) ?? '');
+      } catch (error) {
+        errors.push(`${item.heading.title}: ${errorMessage(error)}`);
+      }
+    }
     let calculation;
     if (this.settings && this.day.endMinutes !== undefined) {
       try {
@@ -172,12 +214,38 @@ export class AllocationSession {
         name: item.heading.title,
         parentPath: item.parentPath,
         minutes: item.minutes,
+        input: this.allocationInputs.get(item.id) ?? String(item.minutes / 60),
       })),
       calculation,
       errors,
       canAdjust,
       canApply: status === 'ready',
     };
+  }
+
+  /** Retains raw input for correction and updates only valid quarter-hour values. */
+  setAllocations(inputs: readonly AllocationInput[]): boolean {
+    if (
+      !this.view.canAdjust ||
+      new Set(inputs.map(input => input.id)).size !== inputs.length ||
+      inputs.some(input => !this.day.items.some(item => item.id === input.id))
+    )
+      return false;
+    for (const item of this.day.items) {
+      const input = inputs.find(input => input.id === item.id);
+      if (!input) continue;
+      this.allocationInputs.set(input.id, input.value);
+      try {
+        item.minutes = parseAllocationHours(input.value);
+      } catch {
+        // Keep the last valid allocation while the user corrects the raw input.
+      }
+    }
+    if (inputs.length) {
+      this.transientErrors = [];
+      this.revision++;
+    }
+    return true;
   }
 
   /** Changes a known item's counter by exactly one quarter hour. */
@@ -188,6 +256,7 @@ export class AllocationSession {
     const minutes = item.minutes + direction * 15;
     if (minutes < 0 || !Number.isSafeInteger(minutes)) return;
     item.minutes = minutes;
+    this.allocationInputs.set(id, String(minutes / 60));
     this.transientErrors = [];
     this.revision++;
   }

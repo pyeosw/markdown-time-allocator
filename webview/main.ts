@@ -1,5 +1,9 @@
 import type {ClientMessage, SessionView} from '../src/domain/models';
-import {formatClock, formatHours} from '../src/domain/timeCalculator';
+import {
+  formatClock,
+  formatHours,
+  parseAllocationHours,
+} from '../src/domain/timeCalculator';
 
 declare function acquireVsCodeApi(): {
   postMessage(message: ClientMessage): void;
@@ -8,6 +12,42 @@ const api = acquireVsCodeApi();
 let state: SessionView | undefined;
 let busy = false;
 let pendingFocus: string | undefined;
+const drafts = new Map<string, string>();
+let submitted:
+  | {generation: number; revision: number; values: Map<string, string>}
+  | undefined;
+
+/** Refreshes input errors and permits an atomic apply of valid pending values. */
+function validateInputs(): void {
+  let valid = true;
+  for (const input of document.querySelectorAll<HTMLInputElement>(
+    '.counter input'
+  )) {
+    let message = '';
+    try {
+      parseAllocationHours(input.value);
+    } catch {
+      message = '0以上の0.25h単位の数値を入力してください。';
+      valid = false;
+    }
+    input.setCustomValidity(message);
+    input.setAttribute('aria-invalid', String(!!message));
+    const error = element(input.getAttribute('aria-describedby') ?? '');
+    error.textContent = message;
+    error.hidden = !message;
+    const minus =
+      input.parentElement?.querySelector<HTMLButtonElement>('button');
+    if (minus)
+      minus.disabled =
+        !state?.canAdjust ||
+        busy ||
+        (!message && parseAllocationHours(input.value) === 0);
+  }
+  element<HTMLButtonElement>('apply').disabled =
+    busy ||
+    !valid ||
+    !(state?.canApply || (state?.canAdjust && drafts.size > 0));
+}
 
 /** Requires a static shell element and fails early if the shell is inconsistent. */
 function element<T extends HTMLElement = HTMLElement>(id: string): T {
@@ -24,8 +64,8 @@ function lock(): void {
       : undefined;
   busy = true;
   for (const control of document.querySelectorAll<
-    HTMLButtonElement | HTMLSelectElement
-  >('button, select'))
+    HTMLButtonElement | HTMLSelectElement | HTMLInputElement
+  >('button, select, input'))
     control.disabled = true;
 }
 
@@ -33,15 +73,24 @@ function lock(): void {
 function sendAction(
   message:
     | {type: 'apply'}
+    | {type: 'setAllocations'}
     | {type: 'adjust'; id: string; direction: 1 | -1}
     | {type: 'changeWorkMode'; mode: 'normal' | 'amLeave'}
 ): void {
   if (!state || busy) return;
+  submitted = {
+    generation: state.generation,
+    revision: state.revision,
+    values: new Map(drafts),
+  };
   lock();
   api.postMessage({
     ...message,
     generation: state.generation,
     revision: state.revision,
+    ...(drafts.size
+      ? {allocations: [...drafts].map(([id, value]) => ({id, value}))}
+      : {}),
   });
 }
 
@@ -53,6 +102,22 @@ function render(next: SessionView, fileName: string): void {
       ? document.activeElement.dataset.focus
       : undefined);
   pendingFocus = undefined;
+  if (
+    submitted &&
+    submitted.generation === next.generation &&
+    next.revision > submitted.revision &&
+    next.status !== 'stale' &&
+    next.status !== 'disposed'
+  ) {
+    for (const [id, value] of submitted.values) {
+      if (drafts.get(id) === value) drafts.delete(id);
+    }
+  }
+  submitted = undefined;
+  if (state?.generation !== next.generation) drafts.clear();
+  for (const item of next.items) {
+    if (drafts.get(item.id) === item.input) drafts.delete(item.id);
+  }
   state = next;
   busy = next.status === 'applying';
   element('target').textContent = `${fileName} / ${next.title}`;
@@ -92,7 +157,7 @@ function render(next: SessionView, fileName: string): void {
   }
   const items = element('items');
   items.replaceChildren();
-  for (const item of next.items) {
+  for (const [index, item] of next.items.entries()) {
     const row = document.createElement('div');
     row.className = 'item';
     const label = document.createElement('div');
@@ -103,11 +168,54 @@ function render(next: SessionView, fileName: string): void {
     label.append(title, path);
     const counter = document.createElement('div');
     counter.className = 'counter';
-    const value = document.createElement('output');
-    value.textContent = formatHours(item.minutes);
-    value.setAttribute('aria-label', `${item.name}の作業時間`);
+    const value = document.createElement('input');
+    value.type = 'text';
+    value.inputMode = 'decimal';
+    value.value = drafts.get(item.id) ?? item.input;
+    value.dataset.focus = `${item.id}/input`;
+    value.disabled = !next.canAdjust || busy;
+    value.setAttribute(
+      'aria-label',
+      `${item.parentPath} ${item.name}の作業時間（時間単位）`.trim()
+    );
+    value.setAttribute('aria-describedby', `input-error-${index}`);
+    const inputError = document.createElement('small');
+    inputError.id = `input-error-${index}`;
+    inputError.className = 'input-error';
+    inputError.setAttribute('aria-live', 'polite');
+    value.addEventListener('input', () => {
+      if (value.value === item.input) drafts.delete(item.id);
+      else drafts.set(item.id, value.value);
+      validateInputs();
+    });
+    value.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !event.isComposing) {
+        event.preventDefault();
+        sendAction({type: 'setAllocations'});
+      }
+    });
+    value.addEventListener('blur', event => {
+      // Buttons commit drafts in the same request as their action, avoiding a lost click.
+      if (
+        event.relatedTarget instanceof HTMLElement &&
+        event.relatedTarget.closest('button, select')
+      )
+        return;
+      if (drafts.size) {
+        const focus =
+          event.relatedTarget instanceof HTMLElement
+            ? event.relatedTarget.dataset.focus
+            : undefined;
+        sendAction({type: 'setAllocations'});
+        if (focus) pendingFocus = focus;
+      }
+    });
     for (const direction of [-1, 1] as const) {
-      if (direction === 1) counter.append(value);
+      if (direction === 1) {
+        const unit = document.createElement('span');
+        unit.textContent = 'h';
+        counter.append(value, unit);
+      }
       const button = document.createElement('button');
       button.textContent = direction === 1 ? '+' : '−';
       button.dataset.focus = `${item.id}/${direction}`;
@@ -122,7 +230,9 @@ function render(next: SessionView, fileName: string): void {
       );
       counter.append(button);
     }
-    row.append(label, counter);
+    const controls = document.createElement('div');
+    controls.append(counter, inputError);
+    row.append(label, controls);
     items.append(row);
   }
   element('other').textContent = result
@@ -132,13 +242,15 @@ function render(next: SessionView, fileName: string): void {
     'negative',
     !!result && result.remainingMinutes < 0
   );
-  element<HTMLButtonElement>('apply').disabled = !next.canApply || busy;
+  validateInputs();
   element<HTMLButtonElement>('reload').disabled =
     busy || next.status === 'disposed';
   element<HTMLButtonElement>('close').disabled = busy;
   if (active) {
-    for (const button of items.querySelectorAll<HTMLButtonElement>('button')) {
-      if (button.dataset.focus === active) button.focus();
+    for (const control of items.querySelectorAll<HTMLElement>(
+      'button, input'
+    )) {
+      if (control.dataset.focus === active) control.focus();
     }
   }
 }
@@ -153,7 +265,10 @@ element('apply').addEventListener('click', () => {
   sendAction({type: 'apply'});
 });
 element('reload').addEventListener('click', () => {
-  if (!busy) api.postMessage({type: 'reload'});
+  if (!busy)
+    api.postMessage(
+      drafts.size ? {type: 'reload', hasDrafts: true} : {type: 'reload'}
+    );
 });
 element('close').addEventListener('click', () =>
   api.postMessage({type: 'close'})

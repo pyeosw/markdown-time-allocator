@@ -9,6 +9,52 @@ import {EXAMPLE} from '../fixtures';
 
 /** Tests authoritative counters, recovery paths, stale snapshots and input validation. */
 describe('配分セッション', () => {
+  // Direct input must update totals, retain invalid drafts and recover without losing edits.
+  it('直接入力を検証し、超過・不正入力から復帰する', () => {
+    const session = new AllocationSession(EXAMPLE, 0, DEFAULT_SETTINGS);
+    const id = session.day.items[0].id;
+    session.setAllocations([{id, value: '1.25'}]);
+    expect(session.day.items[0].minutes).toBe(75);
+    expect(session.view.calculation?.remainingMinutes).toBe(405);
+    expect(session.dirty).toBe(true);
+    session.setAllocations([{id, value: '8.25'}]);
+    expect(session.view.canApply).toBe(false);
+    expect(session.view.calculation?.remainingMinutes).toBe(-15);
+    session.setAllocations([{id, value: ''}]);
+    expect(session.view.items[0].input).toBe('');
+    expect(session.view.errors.join()).toContain('0.25h');
+    expect(session.view.canAdjust).toBe(true);
+    expect(() => session.plan()).toThrow();
+    session.setAllocations([{id, value: '2.5'}]);
+    expect(session.view.canApply).toBe(true);
+    expect(session.view.calculation?.remainingMinutes).toBe(330);
+    session.adjust(id, 1);
+    expect(session.view.items[0].input).toBe('2.75');
+  });
+  // Unknown or duplicate IDs and lifecycle changes must reject an entire input batch.
+  it('不正な対象・状態の直接入力を拒否する', () => {
+    const session = new AllocationSession(EXAMPLE, 0, DEFAULT_SETTINGS);
+    const input = {id: session.day.items[0].id, value: '2'};
+    expect(session.setAllocations([input, {id: 'unknown', value: '3'}])).toBe(
+      false
+    );
+    expect(session.setAllocations([input, input])).toBe(false);
+    expect(session.dirty).toBe(false);
+    for (const status of ['stale', 'applying', 'disposed'] as const) {
+      session.setStatus(status);
+      expect(session.setAllocations([input])).toBe(false);
+    }
+  });
+  // Empty input is an unsaved edit even when the last valid allocation is still zero.
+  it('不正入力だけでも未適用として扱い、再読込で初期化する', () => {
+    const session = new AllocationSession(EXAMPLE, 0, DEFAULT_SETTINGS);
+    session.setAllocations([{id: session.day.items[0].id, value: ''}]);
+    expect(session.dirty).toBe(true);
+    session.reload(EXAMPLE, 0, DEFAULT_SETTINGS, 1);
+    expect(session.dirty).toBe(false);
+    expect(session.view.items[0].input).toBe('0');
+  });
+
   it('0hの初期値と8hのその他から開始し、0未満には減算しない', () => {
     const session = new AllocationSession(EXAMPLE, 0, DEFAULT_SETTINGS);
     expect(session.view.calculation?.remainingMinutes).toBe(480);
@@ -112,6 +158,22 @@ describe('配分セッション', () => {
     {type: 'adjust', generation: 1, revision: 1, id: 'x', direction: 15},
     {type: 'changeWorkMode', generation: 1, revision: 1, mode: 'night'},
     {type: 'apply', generation: NaN, revision: 0},
+    {type: 'setAllocations', generation: 1, revision: 0, allocations: 'bad'},
+    {
+      type: 'apply',
+      generation: 1,
+      revision: 0,
+      allocations: [{id: 'x', value: 2}],
+    },
+    {
+      type: 'apply',
+      generation: 1,
+      revision: 0,
+      allocations: [
+        {id: 'x', value: '2'},
+        {id: 'x', value: '3'},
+      ],
+    },
   ])('不正メッセージを拒否', value => {
     expect(parseClientMessage(value)).toBeUndefined();
   });

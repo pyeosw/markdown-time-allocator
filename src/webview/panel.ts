@@ -152,8 +152,17 @@ export class AllocationPanel implements vscode.Disposable {
       this.sendState();
       return;
     }
+    if (
+      'allocations' in message &&
+      message.allocations &&
+      !this.session.setAllocations(message.allocations)
+    ) {
+      this.sendState();
+      return;
+    }
     switch (message.type) {
       case 'ready':
+      case 'setAllocations':
         this.sendState();
         break;
       case 'adjust':
@@ -168,7 +177,8 @@ export class AllocationPanel implements vscode.Disposable {
         await this.apply();
         break;
       case 'reload':
-        if (await this.confirmDiscard('再読込')) this.reload();
+        if (await this.confirmDiscard('再読込', message.hasDrafts))
+          this.reload();
         break;
       case 'close':
         this.dispose();
@@ -177,8 +187,8 @@ export class AllocationPanel implements vscode.Disposable {
   }
 
   /** Requests discard only when an explicit reload or target switch loses input. */
-  async confirmDiscard(action: string): Promise<boolean> {
-    if (!this.session.dirty) return true;
+  async confirmDiscard(action: string, hasDrafts = false): Promise<boolean> {
+    if (!this.session.dirty && !hasDrafts) return true;
     const choice = await vscode.window.showWarningMessage(
       `未適用の入力を破棄して${action}しますか？`,
       {modal: true},
