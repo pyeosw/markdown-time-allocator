@@ -27,17 +27,21 @@ export function registerTests(): void {
     let extraPanel: AllocationPanel | undefined;
 
     setup(async () => {
-      const installed = vscode.extensions.getExtension<ExtensionApi>(
-        'time-calculator-local.time-calculator-vsc'
+      const extensionId = process.env.TIME_CALCULATOR_TEST_EXTENSION_ID;
+      assert.ok(
+        extensionId,
+        'The test runner must provide the manifest extension ID.'
       );
-      assert.ok(installed);
+      const installed =
+        vscode.extensions.getExtension<ExtensionApi>(extensionId);
+      assert.ok(installed, `Extension not found: ${extensionId}`);
       extension = installed;
       api = await extension.activate();
     });
     teardown(async () => {
       extraPanel?.dispose();
       extraPanel = undefined;
-      api.getPanel()?.dispose();
+      api?.getPanel()?.dispose();
       await vscode.workspace
         .getConfiguration('timeCalculator')
         .update(
